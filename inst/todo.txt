@@ -1,0 +1,9 @@
+Make dest_base/repo@subrepoName/src/contrib/repo.R THE canonical
+source for manifest, previous build results, etc.
+
+lazyRepo (and thus Install) function that can handle all source types.
+	 Use PkgSource class instead of hardcoding for Github
+
+Results should be in repo@results, no longer in repo@manifest (which
+is now a PkgManifest object that doesn't have any prev or current
+build info in it)
