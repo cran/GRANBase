@@ -34,13 +34,13 @@ available.packages(repo, type="source")
 
 
 ###################################################
-### code chunk number 5: GRAN-Overview.Rnw:87-88 (eval = FALSE)
+### code chunk number 5: GRAN-Overview.Rnw:94-95 (eval = FALSE)
 ###################################################
 ## repo = makeRepo(file.path(repdir, "stable"), cores=1L)
 
 
 ###################################################
-### code chunk number 6: GRAN-Overview.Rnw:93-95 (eval = FALSE)
+### code chunk number 6: GRAN-Overview.Rnw:100-102 (eval = FALSE)
 ###################################################
 ## repo2  = makeRepo(repo, build_pkgs=basename(testpkgs)[1],
 ##     cores = 1L)
