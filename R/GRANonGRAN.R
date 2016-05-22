@@ -33,18 +33,24 @@ GRANonGRAN = function(repo)
     writeLines(DESC, con = file.path(babyGRAN, "DESCRIPTION"))
     cat(paste0("pkgname = '", pkgname, "'"), file = file.path(babyGRAN, "R", "00packagename.R"))
     
-    if(pkgname %in% manifest_df(repo)$name) {
-        granInd = which(repo_results(repo)$name == pkgname)
-        repo_results(repo)[granInd,] = ResultsRow(name = pkgname)
-        manifest_df(repo)[granInd,] = ManifestRow(name=pkgname,
-                             url = babyGRAN, type="local", subdir = ".",
-                             branch = "master")
-    } else {
-        repo = addPkg(repo, name=pkgname, url = babyGRAN, type="local",
-            subdir = ".")
-    }
+    ## if(pkgname %in% manifest_df(repo)$name) {
+    ##     granInd = which(repo_results(repo)$name == pkgname)
+    ##     repo_results(repo)[granInd,] = ResultsRow(name = pkgname)
+    ##     manifest_df(repo)[granInd,] = ManifestRow(name=pkgname,
+    ##                          url = babyGRAN, type="local", subdir = ".",
+    ##                          branch = "master")
+    ## } else {
+    ##     repo = addPkg(repo, name=pkgname, url = babyGRAN, type="local",
+    ##         subdir = ".")
+    ## }
 
-##    cran_use_ok = use_cran_granbase(repo)
+    repo = addPkg(repo, name=pkgname, url = babyGRAN, type="local",
+                  subdir = ".", replace = TRUE)
+    ## addPkg doesn't reset the results
+    granInd = which(repo_results(repo)$name == pkgname)
+    repo_results(repo)[granInd,] = ResultsRow(name = pkgname)
+
+    ##    cran_use_ok = use_cran_granbase(repo)
     cran_use_ok = FALSE
     if(cran_use_ok) {
         ## this should give us GRANBase, switchr, and dependencies
@@ -57,25 +63,20 @@ GRANonGRAN = function(repo)
     }
             
     if(!cran_use_ok) { ## force switchr and GRANBase into the manifest and make them build
-        if(!"switchr" %in% manifest_df(repo, session_only=FALSE)$name)
-            repo = addPkg(repo, name = "switchr", url="http://github.com/gmbecker/switchr", type = "git")
-        else {
-            df = repo_results(repo)
-            df[df$name == "switchr", "building"] = TRUE
-            df[df$name == "switchr", "lastbuiltversion"] = "0.0-0"
-            repo_results(repo) = df
-        }
-
-        if(!"GRANBase" %in% manifest_df(repo, session_only=FALSE)$name)
-           repo = addPkg(repo, name = "GRANBase",  url="http://github.com/gmbecker/gRAN", type = "git")
-        else {
-           df = repo_results(repo)
-           df[df$name == "GRANBase", "building"] = TRUE
-           df[df$name == "GRANBase", "lastbuiltversion"] = "0.0-0"
-
-           repo_results(repo) = df
-       }
+        pkgs = c("switchr", "GRANBase")
+        repo = addPkg(repo,
+                      name = pkgs,
+                      url = c("git://github.com/gmbecker/switchr",
+                              "git://github.com/gmbecker/gRAN"),
+                      type = "git", replace=TRUE)
+        
+        df = repo_results(repo)
+        df[df$name %in% pkgs, "building"] = TRUE
+        df[df$name %in% pkgs, "lastbuiltversion"] = "0.0-0"
+        
+        repo_results(repo) = df
     }
+
     
     repo
     
@@ -123,9 +124,18 @@ loadRepo = function(filename) {
         res = dget(textConnection(txt2))
         res = updateGRANRepoObject(res)
     }
+    ## Just in case
+    prepDirStructure(normalizePath2(file.path(repobase(res), "..")),
+                     repo_name(res),
+                     temp_repo(res),
+                     checkout_dir(res),
+                     temp_lib(res),
+                     dest_base(res))
+    
     ##refresh closure for log function
     logfun(res) = function(pkg, msg, type = "full") writeGRANLog(pkg, msg, type,
-              logfile = logfile(res), errfile = errlogfile(res))
+              logfile = logfile(res), errfile = errlogfile(res),
+              pkglog = pkg_log_file(pkg, res))
     res
 }
             

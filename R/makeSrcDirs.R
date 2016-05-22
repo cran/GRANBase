@@ -10,12 +10,7 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
         subdir = manifest$subdir,  name = manifest$name)
     path = checkout_dir(repo)
     versions = versions_df(repo)[binds,]
-    res <- mapply(#mcmapply2(
-        function(nm, src,  repo, path, version) {
-            ##hack for now, supports github but not other git repos
-            ## eventually I need to write gotoVersCommit for git checkouts
-            if(!is.na(version) && is(src, "GitSource"))
-                src = as(src, "SVNSource")
+    res <- mapply(function(nm, src,  repo, path, version) {
                 
             ret = makePkgDir(name = nm, source = src, path =path,
                 latest_only = FALSE, param = param(repo), forceRefresh=FALSE)
@@ -35,7 +30,14 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
     res = unlist(res)
     if(!is.logical(res)) 
         print(res)
-    repo_results(repo)$status[binds][!res] = "source checkout failed"
+    fullres = repo_results(repo)
+    fullres$status[binds][!res] = "source checkout failed"
+    vrs = getCOedVersions(path, repo = repo)
+    inds = fullres$name %in% names(vrs)
+
+    fullres$version[inds] = vrs[match(fullres$name[inds],
+                                  names(vrs))]
+    repo_results(repo) = fullres
     repo
 }
 

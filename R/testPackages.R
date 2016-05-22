@@ -42,7 +42,6 @@ installTest = function(repo, cores = 3L)
     oldops = options()
     options(warn = 1)
     on.exit(options(oldops))
-    #  loc = file.path(tempdir(), paste("GRANtmplib", repo_name(repo), sep="_"))
     loc = temp_lib(repo)
     if(!file.exists(loc))
         dir.create(loc, recursive=TRUE)
@@ -54,20 +53,27 @@ installTest = function(repo, cores = 3L)
         return(repo)
     }
 
+    reps = c(makeFileURL(temp_repo(repo)),
+            defaultRepos(),
+            "http://R-Forge.R-project.org")
     oldlp = .libPaths()
-    .libPaths(loc)
+    .libPaths2(loc, exclude.site=TRUE)
     on.exit(.libPaths(oldlp))
     
+    if(!file.exists(install_result_dir(repo)))
+        dir.create(install_result_dir(repo))
+
+    granpkgs = bres[grepl("^GRAN", bres$name),]
+    bres = bres[!grepl("^GRAN", bres$name),]
     
     res = install.packages2(bres$name, lib = loc,
-        repos = c(makeFileURL(temp_repo(repo)),
-            defaultRepos(),
-            "http://R-Forge.R-project.org"),
-        type = "source", dependencies=TRUE, ## Ncpus = cores,
+        repos = reps,
+        type = "source", dependencies=TRUE, ## Ncpus = cores, problems with installing deps?
         param = param(repo),
         outdir = install_result_dir(repo))
     success = processInstOut(names(res), res, repo)
-    cleanupInstOut(res)
+    ## why was I removing some of the output logs? Doesn't seem like we want this.
+    ##cleanupInstOut(res)
     
     logfun(repo)("NA", paste0("Installation successful for ", sum(success), " of ", length(success), " packages."), type = "full")
 
@@ -88,6 +94,11 @@ processInstOut = function(pkg, out, repo)
         ret = TRUE
     } else if (out == "unavailable") {
         logfun(repo)(pkg, paste("Package", pkg, "unavailable in temporary repository. Likely package name mismatch between manifest and DESCRIPTION file"), type = "both")
+        ret = FALSE
+    } else if (out == "output missing") {
+        logfun(repo)(pkg, paste("Package", pkg, "was not successfully installed and no",
+                                "output is available. Likely culprit: failure during",
+                                "installation of one of it's dependencies?"), type = "both")
         ret = FALSE
     } else {
         logfun(repo)(pkg, paste0("Installation of ", pkg, " from temporary repository failed"), type="both")
@@ -122,34 +133,48 @@ checkTest = function(repo, cores = 3L)
         return(repo)
     #pat = paste0("(", paste(bres$name, collapse="|"), ")_.*\\.tar.gz")
     #tars = list.files(pattern = pat)
-    tars = unlist(mapply(function(nm, vr) list.files(pattern = paste0(nm, "_", vr, ".tar.gz")), nm = bres$name, vr = bres$version))
-    if(length(tars) < nrow(bres)) {
-        missing = sapply(bres$name, function(x) !any(grepl(x, tars, fixed=TRUE)))
+    expectedTars = file.path(staging(repo), paste0(bres$name,"_", bres$version, ".tar.gz"))
+    tars = expectedTars[file.exists(expectedTars)]
+##    tars = unlist(mapply(function(nm, vr) list.files(pattern = paste0(nm, "_", vr, ".tar.gz")), nm = bres$name, vr = bres$version))
+    if(!identical(expectedTars, tars)){
+        missing = !file.exists(expectedTars)
+        ##        missing = sapply(bres$name,
+        ##            function(x) !any(grepl(paste0("^",x, "_"), tars, fixed=TRUE)))
         logfun(repo)("NA", c("Tarballs not found for these packages during check test:", paste(bres$name[missing], collapse = " , ")), type = "both")
-        #tars = tars[order(bres$name[!missing])]
         repo_results(repo)$status[manifest_df(repo)$name %in% bres$name[missing]] = "Unable to check - missing tarball"
         bres  = bres[!missing,]
-        binds[binds] = binds[binds] & !missing
+        binds[missing] = FALSE
     }
     #tars = tars[order(bres$name)]
-    ord = mapply(function(nm, vr) grep(paste0(nm, "_", vr), tars), nm = bres$name, vr = bres$version)
+##    ord = mapply(function(nm, vr) grep(paste0(nm, "_", vr), tars), nm = bres$name, vr = bres$version)
     
-    tars = tars[unlist(ord)]
-    outs = mcmapply2( function(tar, nm, repo) {
-                         if(nm == "GRANBase") {
-                                     logfun(repo)(nm, paste("Not checking GRANBase package to avoid recursion problems"))
-                                     return("ok")
-                                 }
-                                     
-        logfun(repo)(nm, paste("Running R CMD check on ", tar))
-        ## We built the vignettes during this round of building, so if the pkg is going to
-        ##fail on building vignettes it will have already happened by this point
-        cmd = paste0('R_LIBS="', temp_lib(repo),  '" R_HOME="',
-            R.home(),'" R CMD check ', tar, " --no-build-vignettes")
-        out = tryCatch(system_w_init(cmd, intern=TRUE, param = param(repo)),
-            error=function(x) x)
-        out
-    }, tar = tars, nm = bres$name, repo = list(repo), mc.cores = cores,
+  ##  tars = tars[unlist(ord)]
+    outs = mcmapply2(
+        function(nm, tar, repo)
+        {
+            if(grepl("^GRAN", nm)) {
+                logfun(repo)(nm, paste("Not checking", nm, "package to avoid recursion problems"))
+                return(c(paste("*", nm, "not checked to prevent recursion"),
+                         "* DONE",
+                         "* Status: OK"))
+            }
+            
+            logfun(repo)(nm, paste("Running R CMD check on ", tar))
+            ## We built the vignettes during this round of building, so if the pkg is going to
+            ##fail on building vignettes it will have already happened by this point
+            cmd = paste0('R_LIBS="', temp_lib(repo),  '" R_HOME="',
+                R.home(),'" R CMD check ', tar, " --no-build-vignettes")
+            env = c(paste0('R_LIBS="', temp_lib(repo), '"'),
+                    paste0('R_HOME="', R.home(), '"'))
+            args = c("check", tar, "--no-build-vignettes")
+            cmd = file.path(R.home("bin"), "Rcmd")
+                    
+            out = tryCatch(system_w_init(cmd, args = args, env = env,
+                                         intern=TRUE, param = param(repo)),
+                error=function(x) x)
+            out
+
+    },  nm = bres$name, tar = tars,repo = list(repo), mc.cores = cores,
         SIMPLIFY=FALSE)
     
     success = mapply(function(nm, out, repo) {

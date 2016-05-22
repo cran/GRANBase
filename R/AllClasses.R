@@ -23,8 +23,13 @@ setClass("RepoBuildParam", representation(
     install_test = "logical",
     check_test = "logical",
     suspended = "character",
-    use_cran_granbase = "logical"),
-         prototype = prototype(use_cran_granbase = TRUE),
+    use_cran_granbase = "logical",
+    build_timeout = "numeric",
+    check_timeout = "numeric"
+    ),
+         prototype = prototype(use_cran_granbase = TRUE,
+                               build_timeout = 10*60,
+                               check_timeout = 15*60),
          contains = "SwitchrParam")
 
 
@@ -150,8 +155,9 @@ GRANRepository = function(manifest,
 ##' installing from the repository.
 ##' @param shell_init An optional shell script to source before invoking system
 ##' commands, e.g. a bashrc file. Ignored if "" or not specified.
-##' @param logfun The function to use to write log messages during the repository
-##' build process. Defaults to writeGRANLog with \code{logfile} and \code{errlog}
+##' @param loginnerfun The function to use to write log messages during the repository
+##' build process. It will be passed pkg, ..., errfile, logfile, and pkglog based on
+##' the other arguments to this function. Defaults to writeGRANLog
 ##' specified as the full and error log locations, respectively.
 ##' @param install_test logical. Should the install test be performed? Required
 ##' to build packages with vignettes, and for the check test
@@ -160,6 +166,10 @@ GRANRepository = function(manifest,
 ##' @param use_cran_granbase logical. Currently ignored.
 ##' @param archive_timing numeric. Number of seconds to wait between attempts to pull a package from the CRAN archive
 ##' @param archive_retries numeric. Number of times to retry pulling a package from the CRAN archive.
+##' @param build_timeout numeric. Number of seconds before timeout during
+##' the build step for a single package. Defaults to 10 minutes.
+##' @param check_timeout numeric. Number of seconds before timeout during
+##' the check step for a single package. Defaults to 15 minutes.
 ##' @rdname repobuildparam
 ##' @export
 
@@ -182,12 +192,14 @@ RepoBuildParam = function(
     auth = "",
     dest_url = makeFileURL(normalizePath2(destination)),
     shell_init = character(),
-    logfun = function(...) writeGRANLog(..., logfile = logfile, errfile = errlog),
+    loginnerfun = writeGRANLog,
     install_test = TRUE,
     check_test = TRUE,
     use_cran_granbase = TRUE,
     archive_timing = 2,
-    archive_retries = 2)
+    archive_retries = 2,
+    build_timeout = 10*60,
+    check_timeout = 15*60)
 {
     
     if(!file.exists(basedir))
@@ -216,12 +228,17 @@ RepoBuildParam = function(
         auth = auth,
         dest_url = dest_url,
         shell_init = shell_init,
-        logfun = logfun,
+        logfun = function(x) NULL, #this is replaced below
         install_test = install_test,
         check_test = check_test,
         use_cran_granbase = use_cran_granbase,
         archive_timing = archive_timing,
-        archive_retries = archive_retries)
+        archive_retries = archive_retries,
+        build_timeout = build_timeout,
+        check_timeout = check_timeout)
+    logfun(repo) = function(pkg, ...) loginnerfun(pkg, ..., errfile = errlogfile(repo),
+                                              logfile = logfile(repo),
+                                              pkglog = pkg_log_file(pkg, repo))
     repo
 }
 
@@ -246,7 +263,10 @@ prepDirStructure = function(basedir, subrepo, temprepo, tempcheckout,
     if(!file.exists(file.path(destination, subrepo, "CheckResults")))
         dir.create(file.path(destination, subrepo, "CheckResults"),
                    recursive = TRUE)
-    
+    if(!file.exists(file.path(destination, subrepo, "SinglePkgLogs")))
+        dir.create(file.path(destination, subrepo, "SinglePkgLogs"),
+                   recursive = TRUE)
+  
 }
 
 

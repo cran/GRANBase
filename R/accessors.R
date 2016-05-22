@@ -14,10 +14,14 @@ setGeneric("logfile", function(repo) standardGeneric("logfile"))
 ##' @rdname GRANRepository-accessors
 ##' @aliases logfile,GRANRepository-method
 setMethod("logfile", "GRANRepository", function(repo) {
-    ret = param(repo)@logfile
+    ret = logfile(param(repo))
     if(!file.exists(dirname(ret)))
         dir.create(dirname(ret), recursive = TRUE)
     ret})
+
+##' @rdname GRANRepository-accessors
+##' @aliases logfile,RepoBuildParam-method
+setMethod("logfile", "RepoBuildParam", function(repo) repo@logfile)
 
 
 ##' errlogfile
@@ -38,6 +42,9 @@ setMethod("errlogfile", "GRANRepository", function(repo) {
     if(!file.exists(dirname(ret)))
         dir.create(dirname(ret), recursive = TRUE)
     ret})
+##' @rdname errlogfile-methods
+##' @aliases errlogfile,RepoBuildParam-method
+setMethod("errlogfile", "RepoBuildParam", function(repo) repo@errlog)
 
 ##' Retrieve the path to a GRAN (sub) repository
 ##' @rdname location-methods
@@ -275,13 +282,13 @@ setGeneric("repo_results", function(x) standardGeneric("repo_results"))
 ##' @aliases repo_results,GRANRepository
 setMethod("repo_results", "GRANRepository", function(x) x@results)
 
-##' ##'@export
 ##' @rdname reporesults
 ##' @param value The new results data.frame
+##' @export
 setGeneric("repo_results<-", function(x, value) standardGeneric("repo_results<-"))
 ##' @rdname reporesults
 ##' @aliases repo_results<-,GRANRepository
-
+##' @export
 setMethod("repo_results<-", "GRANRepository", function(x, value) {
     x@results = value
     x
@@ -452,19 +459,27 @@ setMethod("logfun<-", "GRANRepository",
 ##' @param \dots passed to manifest method for addPkg
 ##' @param rows data.frame or unspecified. passed to manifest method for addPkg
 ##' @param versions data.frame passed to manifest method for addPkg
+##' @param replace logical. Should the information in \code{...}/\code{rows}
+##' replace existing rows for the same pacakge? Defaults to FALSE, in which case
+##' an error is thrown.
 ##' @return \code{x} with the specified package(s) added to the associated manifest
 ##' @export
 ##' @importMethodsFrom switchr addPkg
 setMethod("addPkg", "GRANRepository",
-          function(x, ..., rows, versions) {
-              if(any(manifest_df(rows)$name %in% manifest_df(x)$name))
+          function(x, ..., rows, versions, replace = FALSE) {
+              if(any(manifest_df(rows)$name %in% manifest_df(x)$name) && !replace)
                   stop("Some of the packages to be added already appear in the repo manifest")
-              manifest(x) = addPkg(manifest(x), ..., rows = rows, versions = versions)
+              manifest(x) = addPkg(manifest(x), ..., rows = rows, versions = versions,
+                                   replace = replace)
               new = which(!manifest_df(x)$name %in% repo_results(x)$name)
-              oldres = repo_results(x)
-              newres = ResultsRow(name = manifest_df(x)$name[new])
-              oldres = oldres[,names(newres)]
-              repo_results(x) = rbind(oldres, newres)
+              if(length(new)) {
+                  oldres = repo_results(x)
+                  newres = ResultsRow(name = manifest_df(x)$name[new])
+                  oldres = oldres[,names(newres)]
+                  repo_results(x) = rbind(oldres, newres)
+              }
+              ## fail fast and hard if the manifest and results df don't line up
+              stopifnot(identical(manifest_df(x)$name, repo_results(x)$name))
               x
           })
 
@@ -491,6 +506,8 @@ setGeneric("use_cran_granbase", function(x) stop("This object doesn't contain re
 ##' @docType methods
 ##' @export
 setGeneric("use_cran_granbase<-", function(x, value) stop("This object doesn't contain repository build parameters"))
+
+
 
 
 
@@ -523,3 +540,126 @@ setMethod("use_cran_granbase<-", "RepoBuildParam",
               x@use_cran_granbase= value
               x
               })
+
+
+
+
+##' @rdname GRANparams
+##' @export
+setGeneric("check_timeout", function(x) stop("This object doesn't contain repository build parameters"))
+
+##' @rdname GRANparams
+##' @docType methods
+##' @export
+setGeneric("check_timeout<-", function(x, value) stop("This object doesn't contain repository build parameters"))
+
+##'@rdname GRANparams
+##' @aliases check_timeout,GRANRepository
+##' @export
+setMethod("check_timeout", "GRANRepository",
+          function(x) param(x)@check_timeout)
+##'@rdname GRANparams
+##' @aliases check_timeout<-,GRANRepository
+##'@export
+
+setMethod("check_timeout<-", "GRANRepository",
+          function(x, value) {
+              param(x)@check_timeout= value
+              x
+              })
+
+
+##'@rdname GRANparams
+##' @aliases check_timeout,RepoBuildParam
+##' @export
+setMethod("check_timeout", "RepoBuildParam",
+          function(x) x@check_timeout)
+##'@rdname GRANparams
+##' @aliases check_timeout<-,RepoBuildParam
+##'@export
+
+setMethod("check_timeout<-", "RepoBuildParam",
+          function(x, value) {
+              x@check_timeout= value
+              x
+              })
+
+
+##' @rdname GRANparams
+##' @export
+setGeneric("build_timeout", function(x) stop("This object doesn't contain repository build parameters"))
+
+##' @rdname GRANparams
+##' @docType methods
+##' @export
+setGeneric("build_timeout<-", function(x, value) stop("This object doesn't contain repository build parameters"))
+
+
+##'@rdname GRANparams
+##' @aliases build_timeout,GRANRepository
+##' @export
+setMethod("build_timeout", "GRANRepository",
+          function(x) param(x)@build_timeout)
+##'@rdname GRANparams
+##' @aliases build_timeout<-,GRANRepository
+##'@export
+
+setMethod("build_timeout<-", "GRANRepository",
+          function(x, value) {
+              param(x)@build_timeout= value
+              x
+              })
+
+
+##'@rdname GRANparams
+##' @aliases build_timeout,RepoBuildParam
+##' @export
+setMethod("build_timeout", "RepoBuildParam",
+          function(x) x@build_timeout)
+##'@rdname GRANparams
+##' @aliases build_timeout<-,RepoBuildParam
+##'@export
+
+setMethod("build_timeout<-", "RepoBuildParam",
+          function(x, value) {
+              x@build_timeout= value
+              x
+              })
+
+##' @rdname GRANparams
+##' @docType methods
+##' @export
+setGeneric("pkg_log_dir", function(x) standardGeneric("pkg_log_dir"))
+
+##' @rdname GRANparams
+##' @aliases pkg_log_dir,RepoBuildParam
+##' @export
+setMethod("pkg_log_dir", "RepoBuildParam", function(x) {
+    file.path(normalizePath2(x@dest_base),
+              x@repo_name,
+              "SinglePkgLogs")
+       
+})
+
+##' @rdname GRANparams
+##' @aliases pkg_log_dir,GRANRepository
+##' @export
+setMethod("pkg_log_dir", "GRANRepository", function(x) pkg_log_dir(param(x)))
+
+
+
+##' @rdname GRANparams
+##' @param pkg The package name, accepted by pkg_log_file.
+##' @docType methods
+##' @export
+setGeneric("pkg_log_file", function(pkg, x) standardGeneric("pkg_log_file"))
+
+##' @rdname GRANparams
+##' @aliases pkg_log_file,RepoBuildParam
+##' @export
+setMethod("pkg_log_file", c(x = "RepoBuildParam"), function(pkg, x) file.path(pkg_log_dir(x), paste0(pkg, ".log")))
+
+##' @rdname GRANparams
+##' @aliases pkg_log_file,GRANRepository
+##' @export
+setMethod("pkg_log_file", c(x = "GRANRepository"), function(pkg,x ) pkg_log_file(pkg, param(x)))
