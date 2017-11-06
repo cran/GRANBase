@@ -1,7 +1,7 @@
-##' @rdname makerepo
-##' @aliases makeRepo,PkgManifest
+#' @rdname makerepo
+#' @aliases makeRepo,PkgManifest
 setMethod("makeRepo", "PkgManifest",
-          function(x, cores = 3L, build_pkgs = NULL,
+          function(x, cores = (parallel:::detectCores() - 1), build_pkgs = NULL,
                    scm_auth = list("bioconductor.org" =
                        c("readonly", "readonly")),
                    ...
@@ -11,18 +11,18 @@ setMethod("makeRepo", "PkgManifest",
                   version = NA, stringsAsFactors = FALSE)
               sessMan = SessionManifest(manifest = x,
                   versions = vers)
-             
+
               makeRepo(sessMan, cores = cores, scm_auth = scm_auth,
                        build_pkgs = build_pkgs,
                        ...)
           })
 
 
-##' @rdname makerepo
-##' @aliases makeRepo,SessionManifest
+#' @rdname makerepo
+#' @aliases makeRepo,SessionManifest
 
 setMethod("makeRepo", "SessionManifest",
-          function(x, cores = 3L, build_pkgs = NULL, 
+          function(x, cores = (parallel:::detectCores() - 1), build_pkgs = NULL,
                    scm_auth = list("bioconductor.org" =
                        c("readonly", "readonly")),
                    ...
@@ -36,13 +36,14 @@ setMethod("makeRepo", "SessionManifest",
 
 
 
-##' @rdname makerepo
-##' @aliases makeRepo,GRANRepository
+#' @rdname makerepo
+#' @aliases makeRepo,GRANRepository
 setMethod("makeRepo", "GRANRepository",
-          function(x, cores = 3L, build_pkgs = NULL,  
+          function(x, cores = (parallel:::detectCores() - 1), build_pkgs = NULL,
                    scm_auth = list("bioconductor.org" =
                                        c("readonly", "readonly")),
                    ...) {
+    message(paste("Started makeRepo at", Sys.time()))
     if(!haveGit()) {
         message("Your system does not appear to have Git available. Returning NULL from makeRepo")
         return(NULL)
@@ -51,7 +52,7 @@ setMethod("makeRepo", "GRANRepository",
     if(file.exists(destination(repo)))
         repo2 = tryCatch(loadRepo(paste(destination(repo), "repo.R",
                                         sep="/")), error = function(x) NULL)
-    else 
+    else
         repo2 = suppressWarnings(tryCatch(loadRepo(paste(repo_url(repo), "repo.R", sep="/")),
                                           error = function(x) NULL))
     if(!is.null(repo2) ) {
@@ -71,8 +72,9 @@ setMethod("makeRepo", "GRANRepository",
                                        build_pkgs)
     } else {
         repo_results(repo)$building = !manifest_df(repo)$name %in% suspended_pkgs(repo)
+        repo_results(repo)$suspended <- manifest_df(repo)$name %in% suspended_pkgs(repo)
     }
-    
+
 
     message(paste("Building", sum(getBuilding(repo)), "packages"))
     ##package, build thine self!
@@ -88,8 +90,10 @@ setMethod("makeRepo", "GRANRepository",
     ##build temp repository
     message(paste("Starting buildBranchesInRepo", Sys.time()))
     message(paste("Building", sum(getBuilding(repo)), "packages"))
-    ##if we have a single package specified we want to build it with or without a version bump
-    repo = buildBranchesInRepo( repo = repo, temp = TRUE, cores = cores, incremental = is.null(build_pkgs))
+    # If we have a single package specified,
+    # we want to build it with or without a version bump
+    repo = buildBranchesInRepo( repo = repo, temp = TRUE, cores = cores,
+                                    incremental = is.null(build_pkgs))
     ##test packges
     message(paste("Invoking package tests", Sys.time()))
     message(paste("Building", sum(getBuilding(repo)), "packages"))
@@ -97,17 +101,18 @@ setMethod("makeRepo", "GRANRepository",
     ##copy successfully built tarballs to final repository
     message(paste("starting migrateToFinalRepo", Sys.time()))
     message(paste("Built", sum(getBuilding(repo)), "packages"))
-    repo = migrateToFinalRepo(repo)
-    
+    repo = suppressWarnings(migrateToFinalRepo(repo))
+
     finalizeRepo(repo)
-    repo
+    message(paste("Completed makeRepo at", Sys.time()))
+    return(repo)
 })
 
-##' @rdname makerepo
-##' @aliases makeRepo,character
+#' @rdname makerepo
+#' @aliases makeRepo,character
 
 setMethod("makeRepo", "character",
-          function(x, cores = 3L, build_pkgs = NULL,  
+          function(x, cores = (parallel:::detectCores() - 1), build_pkgs = NULL,
                    scm_auth = list("bioconductor.org" =
                        c("readonly", "readonly")),
                    ...) {
@@ -125,4 +130,3 @@ setMethod("makeRepo", "character",
               makeRepo(repo, cores = cores, build_pkgs = build_pkgs,
                        scm_auth = scm_auth, ...)
           })
-

@@ -3,30 +3,34 @@
 \docType{methods}
 \name{makeRepo}
 \alias{makeRepo}
-\alias{makeRepo,GRANRepository}
-\alias{makeRepo,GRANRepository-method}
-\alias{makeRepo,PkgManifest}
 \alias{makeRepo,PkgManifest-method}
-\alias{makeRepo,SessionManifest}
+\alias{makeRepo,PkgManifest}
 \alias{makeRepo,SessionManifest-method}
-\alias{makeRepo,character}
+\alias{makeRepo,SessionManifest}
+\alias{makeRepo,GRANRepository-method}
+\alias{makeRepo,GRANRepository}
 \alias{makeRepo,character-method}
+\alias{makeRepo,character}
 \title{makeRepo}
 \usage{
-makeRepo(x, cores = 3L, build_pkgs = NULL,
+makeRepo(x, cores = (parallel:::detectCores() - 1), build_pkgs = NULL,
   scm_auth = list(bioconductor.org = c("readonly", "readonly")), ...)
 
-\S4method{makeRepo}{PkgManifest}(x, cores = 3L, build_pkgs = NULL,
-  scm_auth = list(bioconductor.org = c("readonly", "readonly")), ...)
+\S4method{makeRepo}{PkgManifest}(x, cores = (parallel:::detectCores() - 1),
+  build_pkgs = NULL, scm_auth = list(bioconductor.org = c("readonly",
+  "readonly")), ...)
 
-\S4method{makeRepo}{SessionManifest}(x, cores = 3L, build_pkgs = NULL,
-  scm_auth = list(bioconductor.org = c("readonly", "readonly")), ...)
+\S4method{makeRepo}{SessionManifest}(x, cores = (parallel:::detectCores() -
+  1), build_pkgs = NULL, scm_auth = list(bioconductor.org = c("readonly",
+  "readonly")), ...)
 
-\S4method{makeRepo}{GRANRepository}(x, cores = 3L, build_pkgs = NULL,
-  scm_auth = list(bioconductor.org = c("readonly", "readonly")), ...)
+\S4method{makeRepo}{GRANRepository}(x, cores = (parallel:::detectCores() - 1),
+  build_pkgs = NULL, scm_auth = list(bioconductor.org = c("readonly",
+  "readonly")), ...)
 
-\S4method{makeRepo}{character}(x, cores = 3L, build_pkgs = NULL,
-  scm_auth = list(bioconductor.org = c("readonly", "readonly")), ...)
+\S4method{makeRepo}{character}(x, cores = (parallel:::detectCores() - 1),
+  build_pkgs = NULL, scm_auth = list(bioconductor.org = c("readonly",
+  "readonly")), ...)
 }
 \arguments{
 \item{x}{The object containing the information necessary to create the repository}
@@ -51,4 +55,6 @@ A GRANRepository object which has used to create a repository.
 Make a package repository containing a specified set of packages from
 various sources
 }
-
+\references{
+Becker G, Barr C, Gentleman R, Lawrence M; Enhancing Reproducibility and Collaboration via Management of R Package Cohorts. Journal of Statistical Software, 81(1). 2017. doi: 10.18637/jss.v082.i01
+}

@@ -1,25 +1,20 @@
-
-
-
-
-
-##' create the tarballs in the new repo from the svn branch locs
-##'
-##' 
-##' @title Build SVN Checkouts Into Repository Directory 
-##' @param repo a GRANRepository object
-##' @param cores number of cores to use during build process. defaults to 1
-##' @param temp logical. whether we are building the temp or final version of the repository
-##' @param incremental logical. whether packages should only be rebuilt if the version number has increased. Default is TRUE
-##' @param manifest data.frame containing a GRAN manifest of pkgs to build. Defaults to the full manifest associated with repo
-##' @return a list with success and fail elements containing the directories which succeeded and failed the build
-##' @author Cory Barr, Gabriel Becker
-##' @importFrom tools write_PACKAGES
-##' @importFrom utils compareVersion
-##' 
-buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
+#' create the tarballs in the new repo from the svn branch locs
+#'
+#'
+#' @title Build SVN Checkouts Into Repository Directory
+#' @param repo a GRANRepository object
+#' @param cores number of cores to use during build process. defaults to (parallel:::detectCores() - 1)
+#' @param temp logical. whether we are building the temp or final version of the repository
+#' @param incremental logical. whether packages should only be rebuilt if the version number has increased. Default is TRUE
+#' @param manifest data.frame containing a GRAN manifest of pkgs to build. Defaults to the full manifest associated with repo
+#' @return a list with success and fail elements containing the directories which succeeded and failed the build
+#' @author Cory Barr, Gabriel Becker
+#' @importFrom tools write_PACKAGES
+#' @importFrom utils compareVersion
+#'
+buildBranchesInRepo <- function( repo, cores = (parallel:::detectCores() - 1), temp=FALSE,
                                 incremental = TRUE, manifest = manifest_df(repo)) {
-  
+
     binds = getBuilding(repo = repo)
     if(!sum(binds))
     {
@@ -44,7 +39,7 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
         repoLoc = staging(repo)
         opts = "--resave-data"
     }
-    
+
     if(!file.exists(repoLoc))
         dir.create(repoLoc, recursive=TRUE)
     startDir <- getwd()
@@ -74,7 +69,7 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
     }
 
     vers_restrict = subset(versions_df(repo), versions_df(repo)$name %in% manifest$name)
-    
+
     res <- mcmapply2(function(...) tryCatch(.innerBuild(...), error = function(e) c("0.0-0" = "failed")),
                      checkout = svnCheckoutsLoc,
                      repo = list(repo), opts = opts,
@@ -86,7 +81,7 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
                      temp = temp,
                      USE.NAMES=FALSE,
                      mc.preschedule = FALSE
-                     
+
                      )
     versions = names(res)
     res = unlist(res)
@@ -104,7 +99,10 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
     ## this is safe
     sameversion = res == "up-to-date"
     ##this may need to be more sophisticated later if we are building binaries for mac/win?
-    write_PACKAGES(".", type="source")
+    if(!temp)
+        write_PACKAGES(".", type="source", latestOnly = FALSE)
+    else
+        write_PACKAGES(".", type="source", latestOnly = TRUE)
     if(any(res %in% c("failed", "build timed-out"))) {
         warning("Warning: not all packages were succesfully built")
     }
@@ -121,12 +119,12 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
 }
 
 .innerBuild = function (checkout, repo, opts, oldver, vers_restr, incremental, temp) {
-    
+
     ## incremental build logic. If incremental == TRUE,
     ## we only rebuild if the package version number has bumped.
     vnum = read.dcf(file.path(checkout, "DESCRIPTION"))[1,"Version"]
     pkg = getPkgNames(checkout)
-    
+
     if(!is.na(vers_restr) && vnum != vers_restr) {
         logfun(repo)(pkg, paste("Wrong version number for pkg",
                                 pkg, "Needed", vers_restr,
@@ -137,8 +135,8 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
         names(ret) = vnum
         return(ret)
     }
-                                            
-    
+
+
     ## we don't support changing the version restriction backward, should we?
     if(is.na(oldver) || compareVersion(vnum, oldver) == 1 )
     {
@@ -153,29 +151,32 @@ buildBranchesInRepo <- function( repo, cores = 1, temp=FALSE,
         logfun(repo)(pkg, paste0("Forcing rebuild of version ", vnum, "."))
     }
     evars = character()
-   
+
 
     #GRANBase is loaded, so new versions of repo packages can fail to
     # load. Do simple, no-install builds for GRANBase and GRAN* packages, always
     if((temp || grepl("^GRAN", pkg)) && !grepl("--no-build-vignettes", opts))
         opts = c(opts, "--no-build-vignettes")
     evars = c(evars, "R_TESTS=''")
-    ## command <- paste("R CMD build", checkout)
-    command <- paste("R")
+    ## make sure that we hit the actual R that we're currently in, even if
+    ## it's not the default/system R installation
+    command <- file.path(R.home("bin"), "R")
     opts = c(paste("CMD build", checkout), opts)
-    ## if(!temp)
-    ##  #   evars = c(evars, R_LIBS_USER=temp_lib(repo))
+
     evars = c(evars, paste0("R_LIBS=", temp_lib(repo)))
     out = tryCatch(system_w_init(command, args = opts, env = evars, intern = TRUE,
         param = param(repo)), error = function(x) x)
-    if(is(out, "error") || ("status" %in% attributes(out) && attr(out, "status") > 0) || !file.exists(paste0(pkg, "_", vnum, builtPkgExt()))) {
+    ## all the ways we can know it didn't work...
+    if(is(out, "error") ||
+       ("status" %in% attributes(out) && attr(out, "status") > 0) ||
+       !file.exists(paste0(pkg, "_", vnum, builtPkgExt()))) {
         type = if(temp) "Temporary" else "Final"
-        logfun(repo)(pkg, paste(type,"package build failed. R CMD build returned non-zero status"), type ="both")
+        logfun(repo)(pkg, paste(type,"Package build failed. R CMD build returned non-zero status"), type ="both")
         logfun(repo)(pkg, c("R CMD build output for failed package build:", out), type="error")
         ret = "failed"
     } else {
-                                        #XXX we want to include the full output when the build succeeds?
-        logfun(repo)(pkg, "Sucessfully built package.", type="full")
+        #XXX we want to include the full output when the build succeeds?
+        logfun(repo)(pkg, "Successfully built package.", type="full")
         ret = "ok"
     }
     names(ret) = vnum

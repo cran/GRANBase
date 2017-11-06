@@ -1,8 +1,8 @@
 
-makeSrcDirs = function(repo, cores = 3L, scm_auth)
+makeSrcDirs = function(repo, cores = (parallel:::detectCores() - 1), scm_auth)
 {
     binds = getBuilding(repo = repo)
-    
+
     manifest = getBuildingManifest(repo = repo)
     scm_auth = replicate(scm_auth, n=nrow(manifest), simplify=FALSE)
     sources = mapply(makeSource, url = manifest$url,
@@ -11,7 +11,6 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
     path = checkout_dir(repo)
     versions = versions_df(repo)[binds,]
     res <- mapply(function(nm, src,  repo, path, version) {
-                
             ret = makePkgDir(name = nm, source = src, path =path,
                 latest_only = FALSE, param = param(repo), forceRefresh=FALSE)
             if(ret && !is.na(version)  && file.exists(file.path(path, nm))) {
@@ -20,7 +19,7 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
             }
             ret
         },
-                     
+
         nm = manifest$name,
         version = versions$version,
         src = sources,
@@ -28,7 +27,7 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
         repo = list(repo))#,
 #       mc.cores = cores)
     res = unlist(res)
-    if(!is.logical(res)) 
+    if(!is.logical(res))
         print(res)
     fullres = repo_results(repo)
     fullres$status[binds][!res] = "source checkout failed"
@@ -40,4 +39,3 @@ makeSrcDirs = function(repo, cores = 3L, scm_auth)
     repo_results(repo) = fullres
     repo
 }
-
