@@ -10,7 +10,9 @@
 
 
 <<<eval = TRUE, echo=FALSE, results=tex>>=
-BiocStyle::latex()
+if(requireNamespace("BiocStyle", quietly=TRUE)) {
+    BiocStyle::latex()
+}
 @ 
 
 \newcommand{\gran}{{\tt GRAN }}

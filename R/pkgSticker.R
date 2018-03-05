@@ -8,13 +8,13 @@
 createSticker <- function(pkgName, destination) {
     pkgcrypt <- encode_string(pkgName)
 
-    pkgFontColor <- setNames(as.list(c("#2B1B17", "#4863A0", "#348781",
-                                       "#347235","#347235","#B87333","#B87333",
+    pkgFontColor <- setNames(as.list(c("#2B1B17", "#4863A0", "#000080",
+                                       "#347235","#003e12","#8b0000","#B87333",
                                        "#F87431","#E41B17","#461B7E")), 0:9)
     pkgFillColor <- setNames(as.list(c("#E5E4E2", "#C2DFFF", "#98FF98",
                                        "#FDD7E4","#FFF5EE","#93FFE8","#FFFF00",
                                        "#FCDFFF","#CCFB5D","#FFCBA4")), 0:9)
-    pkgOutlineColor <- setNames(as.list(c("#4B0082", "#FFFF00", "#566D7E",
+    pkgOutlineColor <- setNames(as.list(c("#4B0082", "#000000", "#566D7E",
                                           "#1F45FC", "#008080", "#348017",
                                           "#FFD801", "#ADA96E", "#F62217",
                                           "#FF00FF")), 0:9)
