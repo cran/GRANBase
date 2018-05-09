@@ -1,232 +1,177 @@
-#Package, build thine self
-#'@importFrom utils install.packages
-GRANonGRAN = function(repo) {
-  logfun(repo)("GRAN",
-               paste("Creating repository specific GRAN package and",
-                     "installing it into the GRAN repository at",
-                     destination(repo)))
 
-  tmpdir = repobase(repo)
-  pkgname = paste0("GRAN", repo_name(repo))
-  babyGRAN = file.path(tmpdir, pkgname)
-  if (file.exists(babyGRAN))
-    unlink(babyGRAN, recursive = TRUE, force = TRUE)
-  dirs = file.path(babyGRAN, c("inst/scripts", "R"))
-  sapply(dirs, dir.create, recursive = TRUE)
-  GRANRepo = repo
-  fils = list.files(system.file2("GRAN", package = "GRANBase"), recursive =
-                      TRUE)
-  res = file.copy(file.path(system.file2("GRAN", package = "GRANBase"), fils),
-                  file.path(babyGRAN, fils),
-                  overwrite = TRUE)
+#' addPkg
+#'
+#' Add a package to the manifest for a GRANRepository
+#' @param x A GRANRepository object
+#' @param \dots passed to manifest method for addPkg
+#' @param rows data.frame or unspecified. passed to manifest method for addPkg
+#' @param versions data.frame passed to manifest method for addPkg
+#' @param replace logical. Should the information in \code{...}/\code{rows}
+#' replace existing rows for the same pacakge? Defaults to FALSE, in which case
+#' an error is thrown.
+#' @return \code{x} with the specified package(s) added to the associated manifest
+#' @examples
+#' man = GithubManifest("gmbecker/switchr")
+#' repo = GRANRepository(man, basedir = tempdir())
+#' repo = addPkg(repo, rows = GithubManifest("gmbecker/rpath"))
+#' @export 
+#' @importFrom switchr addPkg
+#' @importMethodsFrom switchr addPkg
+setMethod("addPkg", "GRANRepository",
+          function(x, ..., rows, versions, replace = FALSE) {
+              if(any(manifest_df(rows)$name %in% manifest_df(x)$name) && !replace)
+                  stop("Some of the packages to be added already appear in the repo manifest")
+              manifest(x) = addPkg(manifest(x), ..., rows = rows, versions = versions,
+                                   replace = replace)
+              new = which(!manifest_df(x)$name %in% repo_results(x)$name)
+              if(length(new)) {
+                  oldres = repo_results(x)
+                  newres = ResultsRow(name = manifest_df(x)$name[new])
+                  oldres = oldres[,names(newres)]
+                  repo_results(x) = rbind(oldres, newres)
+              }
+              ## fail fast and hard if the manifest and results df don't line up
+              stopifnot(identical(manifest_df(x)$name, repo_results(x)$name))
+              ## otherwise when you call makeRepo it will go retrieve the old version!
+              ## XXX possibly fix this another way someday
+              saveRepoFiles(x)
+              x
+          })
 
-  if (any(!res))
-    stop("copy failed")
-  saveRepo(GRANRepo,
-           filename = file.path(babyGRAN, "inst", "myrepo.R"))
-  code = paste(
-    "getGRAN = function(...) {",
-    sprintf(
-      "install.packages('%s', repos = c('%s', getOption('repos')))",
-      pkgname,
-      repo_url(repo)
-    ),
-    "};",
-    "getGRAN(type='source')",
-    collapse = "\n"
-  )
-  cat(code, file = file.path(babyGRAN, "inst", "scripts", "getGRAN.R"))
-  cat(code, file = file.path(dest_base(repo),
-                             paste0("getGRAN-", repo_name(repo), ".R")))
-  DESC = readLines(file.path(babyGRAN, "DESCRIPTION"))
-  DESC[1] = paste0("Package: ", pkgname)
-  writeLines(DESC, con = file.path(babyGRAN, "DESCRIPTION"))
-  cat(paste0("pkgname = '", pkgname, "'"),
-      file = file.path(babyGRAN, "R", "00packagename.R"))
-
-  ## if(pkgname %in% manifest_df(repo)$name) {
-  ##     granInd = which(repo_results(repo)$name == pkgname)
-  ##     repo_results(repo)[granInd,] = ResultsRow(name = pkgname)
-  ##     manifest_df(repo)[granInd,] = ManifestRow(name=pkgname,
-  ##                          url = babyGRAN, type="local", subdir = ".",
-  ##                          branch = "master")
-  ## } else {
-  ##     repo = addPkg(repo, name=pkgname, url = babyGRAN, type="local",
-  ##         subdir = ".")
-  ## }
-
-  repo = addPkg(
-    repo,
-    name = pkgname,
-    url = babyGRAN,
-    type = "local",
-    subdir = ".",
-    replace = TRUE
-  )
-  ## addPkg doesn't reset the results
-  granInd = which(repo_results(repo)$name == pkgname)
-  repo_results(repo)[granInd, ] = ResultsRow(name = pkgname)
-
-  ##    cran_use_ok = use_cran_granbase(repo)
-  cran_use_ok = FALSE
-
-  if (cran_use_ok) {
-    ## This should give us GRANBase, switchr, and dependencies
-    res = tryCatch(
-      install.packages(
-        "GRANBase",
-        dependencies = TRUE,
-        lib = temp_lib(repo)
-      ),
-      error = function(e)
-        e
-    )
-    if (is(res, "error"))
-      cran_use_ok = FALSE
-  }
-
-  if (!cran_use_ok) {
-    # Force switchr and GRANBase into the manifest and make them build
-    # Don't build them if there has been no version bump
-
-    pkgs <- c("switchr",     #[1]
-              "GRANBase")    #[2]
-    old_df <- repo_results(repo)
-    mini_df <- old_df[old_df$name %in% pkgs, ]
-    old_switchr_ver <- mini_df$lastbuiltversion[mini_df$name == pkgs[1]]
-    old_gran_ver <- mini_df$lastbuiltversion[mini_df$name == pkgs[2]]
-
-    # Construct raw Github URLs for DESCRIPTION files of GRAN and switchr
-    github_user <- "gmbecker"
-    github_base_url <- "https://github.com"
-    github_raw_base <- "https://raw.githubusercontent.com"
-    repo_names <- c("switchr", #[1]
-                    "gran")    #[2]
-    repo_urls <- paste0(github_base_url, "/", github_user, "/", repo_names)
-    raw_desc_urls <- paste0(github_raw_base, "/", github_user,
-                            "/", repo_names, "/master/DESCRIPTION")
-    switchr_conn <- url(raw_desc_urls[1])
-    gran_conn <- url(raw_desc_urls[2])
-
-    # Use read.dcf to extract the live versions of GRANBase and switchr
-    curr_switchr_ver <- read.dcf(switchr_conn, fields = "Version")
-    curr_gran_ver <- read.dcf(gran_conn, fields = "Version")
-
-    # Close the open URL connections
-    close(switchr_conn)
-    close(gran_conn)
-
-    # Replace NAs, NULLs or character(0) with 0.0-0
-    check_invalid <- function(x) {
-      if (is.na(x) || is.null(x) || identical(x, character(0))) {
-        return("0.0-0")
-      } else {
-        return(x)
-      }
+## Package, build thine self, and create thine baby
+#' @importFrom utils install.packages
+#' @import GRANCore
+#' @import switchr
+#' @import methods
+GRANonGRAN <- function(repo) {
+    logfun(repo)("GRAN",
+        paste("Creating repository specific GRAN package and",
+              "installing it into the GRAN repository at",
+              destination(repo)))
+    
+    tmpdir <- repobase(repo)
+    pkgname <- paste0("GRAN", repo_name(repo))
+    babyGRAN <- file.path(tmpdir, pkgname)
+    if (file.exists(babyGRAN))
+        unlink(babyGRAN, recursive = TRUE, force = TRUE)
+    dirs <- file.path(babyGRAN, c("inst/scripts", "R"))
+    sapply(dirs, dir.create, recursive = TRUE)
+    GRANRepo <- repo
+    fils <- list.files(system.file2("GRAN",
+                                    package = "GRANBase"), recursive = TRUE)
+    res <- file.copy(file.path(system.file2("GRAN",
+                                            package = "GRANBase"), fils),
+                     file.path(babyGRAN, fils),
+                     overwrite = TRUE)
+    
+    if (any(!res))
+        stop("Copy failed")
+    saveRepo(GRANRepo, filename = file.path(babyGRAN, "inst", "myrepo.R"))
+    code <- paste0("getGRAN = function(...) { install.packages('",
+                   pkgname,
+                   "', repos = c('",
+                   repo_url(repo),
+                   "', getOption('repos'))) }; getGRAN(type='source')")
+    cat(code, file = file.path(babyGRAN, "inst", "scripts", "getGRAN.R"))
+    cat(code, file = file.path(dest_base(repo),
+                               paste0("getGRAN-", repo_name(repo), ".R")))
+    DESC <- readLines(file.path(babyGRAN, "DESCRIPTION"))
+    DESC[1] <- paste0("Package: ", pkgname)
+    writeLines(DESC, con = file.path(babyGRAN, "DESCRIPTION"))
+    cat(paste0("pkgname = '", pkgname, "'"),
+        file = file.path(babyGRAN, "R", "00packagename.R"))
+    
+    repo <- addPkg(repo,
+                   name = pkgname,
+                   url = babyGRAN,
+                   type = "local",
+                   subdir = ".",
+                   replace = TRUE)
+    ## addPkg doesn't reset the results
+    granInd <- which(repo_results(repo)$name == pkgname)
+    repo_results(repo)[granInd, ] <- ResultsRow(name = pkgname)
+    
+    ##    cran_use_ok = use_cran_granbase(repo)
+    cran_use_ok <- FALSE
+    
+    if (cran_use_ok) {
+        ## This should give us GRANBase, switchr, and dependencies
+        res <- tryCatch(install.packages("GRANBase",
+                                         dependencies = TRUE, lib = temp_lib(repo)),
+                        error = function(e) e)
+        if (is(res, "error"))
+            cran_use_ok <- FALSE
     }
-    old_switchr_ver <- check_invalid(old_switchr_ver)
-    old_gran_ver <- check_invalid(old_gran_ver)
-
-    # if old_switchr_ver is not the same as curr_switchr_ver, or
-    # if old_gran_ver is not the same as curr_gran_ver,
-    # then force them into the repo and build them
-    # Otherwise, don't force them in
-    force_switchr <- compareVersion(curr_switchr_ver, old_switchr_ver) == 1
-    force_gran <- compareVersion(curr_gran_ver, old_gran_ver) == 1
-    if (force_switchr || force_gran) {
-      repo = addPkg(repo,
-                    name = pkgs,
-                    url = repo_urls,
-                    type = "git",
-                    replace = TRUE)
-
-      df = repo_results(repo)
-      df[df$name %in% pkgs, "building"] = TRUE
-      df[df$name %in% pkgs, "lastbuiltversion"] = "0.0-0"
-
-      repo_results(repo) = df
+    
+    if (!cran_use_ok) {
+        ## Force switchr, GRANBase, and GRANCore into the manifest and make them build
+        ## Don't build them if there has been no version bump
+        
+        pkgs <- c("switchr",     #[1]
+                  "GRANBase",
+                  "GRANCore")    #[2]
+        old_df <- repo_results(repo)
+        mini_df <- old_df[old_df$name %in% pkgs, ]
+        old_switchr_ver <- mini_df$lastbuiltversion[mini_df$name == pkgs[1]]
+        old_gran_ver <- mini_df$lastbuiltversion[mini_df$name == pkgs[2]]
+        old_grancore_ver <- mini_df$lastbuiltversion[mini_df$name == pkgs[3]]
+        
+        ## Construct raw Github URLs for DESCRIPTION files of GRAN and switchr
+        github_user <- "gmbecker"
+        github_base_url <- "https://github.com"
+        github_raw_base <- "https://raw.githubusercontent.com"
+        repo_names <- c("switchr", #[1]
+                        "gran", #[2]
+                        "grancore")    #[3]
+        repo_urls <- paste0(github_base_url, "/", github_user, "/", repo_names)
+        raw_desc_urls <- paste0(github_raw_base, "/", github_user,
+                                "/", repo_names, "/master/DESCRIPTION")
+        switchr_conn <- url(raw_desc_urls[1])
+        gran_conn <- url(raw_desc_urls[2])
+        grancore_conn <- url(raw_desc_urls[3])
+        
+        ## Use read.dcf to extract the live versions of GRANBase and switchr
+        curr_switchr_ver <- read.dcf(switchr_conn, fields = "Version")
+        curr_gran_ver <- read.dcf(gran_conn, fields = "Version")
+        curr_grancore_ver <- read.dcf(gran_conn, fields = "Version")
+        
+        ## Close the open URL connections
+        close(switchr_conn)
+        close(gran_conn)
+        close(grancore_conn)
+        
+        ## Replace NAs, NULLs or character(0) with 0.0-0
+        check_invalid <- function(x) {
+            if (is.na(x) || is.null(x) || identical(x, character(0))) {
+                return("0.0-0")
+            } else {
+                return(x)
+            }
+        }
+        old_switchr_ver <- check_invalid(old_switchr_ver)
+        old_gran_ver <- check_invalid(old_gran_ver)
+        old_grancore_ver <- check_invalid(old_grancore_ver)
+        
+        ## if old_switchr_ver is not the same as curr_switchr_ver, or
+        ## if old_gran_ver is not the same as curr_gran_ver,
+        ## then force them into the repo and build them
+        ## Otherwise, don't force them in
+        force_switchr <- compareVersion(curr_switchr_ver, old_switchr_ver) == 1
+        force_gran <- compareVersion(curr_gran_ver, old_gran_ver) == 1
+        force_grancore <- compareVersion(curr_grancore_ver, old_grancore_ver) == 1
+        if (force_switchr || force_gran || force_grancore) {
+            repo <- addPkg(repo,
+                           name = pkgs,
+                           url = repo_urls,
+                           type = "git",
+                           replace = TRUE)
+            
+            df = repo_results(repo)
+            df[df$name %in% pkgs, "building"] = TRUE
+            df[df$name %in% pkgs, "lastbuiltversion"] = "0.0-0"
+            
+            repo_results(repo) = df
+        }
     }
-  }
-  repo
-}
-
-#'Transform a GRANRepository object into a list
-#'
-#' Utility to transform a GRANRepository object into a list
-#' so that repos saved using GRANBase can be loaded by GRAN
-#' without requiring GRANBase
-#'
-#' @param repo repository
-#' @return a list suitable for use with RepoFromList
-#' @export
-RepoToList = function(repo) {
-  sl = names(getSlots(class(repo)))
-  l = lapply(sl, function(x)
-    slot(repo, x))
-  names(l) = sl
-  l
-}
-
-#'Create a GRANRepository object from a list
-#'
-#' @param rlist A list with entries that are slot name-value
-#' pairs for a GRANRepository object
-#' @return a GRANRepository object
-#' @export
-RepoFromList = function(rlist) {
-  do.call(new, c("GRANRepository", rlist))
-}
-
-#'Backwards compatible load utility
-#'
-#' Load a repository serialized to an R code file
-#'
-#' @param filename The file to load
-#' @export
-loadRepo = function(filename) {
-  res = tryCatch(
-    dget(filename),
-    error = function(e)
-      e)
-  if (is(res, "error")) {
-    txt = readLines(filename)
-    txt2 = gsub("GRANRepository", "GRANRepositoryv0.9", txt)
-    res = dget(textConnection(txt2))
-    res = updateGRANRepoObject(res)
-  }
-  ## Just in case
-  prepDirStructure(
-    normalizePath2(file.path(repobase(res), "..")),
-    repo_name(res),
-    temp_repo(res),
-    checkout_dir(res),
-    temp_lib(res),
-    dest_base(res)
-  )
-
-  ##refresh closure for log function
-  logfun(res) = function(pkg, msg, type = "full")
-    writeGRANLog(
-      pkg,
-      msg,
-      type,
-      logfile = logfile(res),
-      errfile = errlogfile(res),
-      pkglog = pkg_log_file(pkg, res)
-    )
-  res
-}
-
-
-#'Backwards compatible save utility
-#'
-#' serialize a repository to a file so that it does not require GRANBase
-#' to load
-#'
-#' @param repo The GRANRepository object to save
-#' @param filename The destination file
-#' @return NULL
-#' @export
-saveRepo = function(repo, filename) {
-  dput(repo, filename)
+    repo
 }

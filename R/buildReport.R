@@ -1,4 +1,4 @@
-#' manifestHTML
+#' buildReport
 #'
 #' Create a build report for a repository reflecting the latest build
 #' @author Dinakar Kulkarni <kulkard2@gene.com>
@@ -7,15 +7,17 @@
 #' @importFrom tools file_path_sans_ext
 #' @param repo A GRANRepository object
 #' @param theme CSS+JS theme. bootstrap, foundation, semanticui or jqueryui
-#' @param reportfile Where the report should be located
+#' @param reportfile File path of the HTML report
 #' @param riskrpt Whether to build the risk report
 #' @param jsonrpt Whether to create a JSON version of the build report
+#' @param splashname Filename for the package HTML splash page
 #' @return None
 #' @export
-manifestHTML <- function(repo, theme = "bootstrap",
+buildReport <- function(repo, theme = "bootstrap",
                 reportfile = file.path(destination(repo), "buildreport.html"),
                 riskrpt = FALSE,
-                jsonrpt = FALSE) {
+                jsonrpt = TRUE,
+                splashname = "index.html") {
 
   # Overall Build Stats
   title <- paste0("<title>GRAN", repo_name(repo), " Build Report</title>")
@@ -45,7 +47,7 @@ manifestHTML <- function(repo, theme = "bootstrap",
   if (jsonrpt) {
     json_outfile <- paste0(file_path_sans_ext(reportfile), ".json")
     write(toJSON(tmpman, pretty = TRUE), json_outfile)
-    dl_json_link <- paste0("<p><a href=\"", json_outfile,
+    dl_json_link <- paste0("<p><a href=\"", basename(json_outfile),
                                   "\">View build report as JSON</a><p>")
   } else {
     dl_json_link <- ""
@@ -58,10 +60,15 @@ manifestHTML <- function(repo, theme = "bootstrap",
   } else {
     tmpman$coverage <- NULL
   }
-  covg_report <- file.path("..", "..", "CovrReports", paste0(tmpman$name,
-                            "-covr-report.html"))
-  tmpman$coverage <- paste0("<a href='", covg_report, "'>", tmpman$coverage, "</a>")
-  tmpman$coverage[!file.exists(file.path(destination(repo), covg_report))] = ""
+  covg_report <- file.path(coverage_report_dir(repo),
+                           paste0(tmpman$name, "-covr-report.html"))
+  covg_report_uri <- file.path("..",
+                               "..",
+                               basename(coverage_report_dir(repo)),
+                               paste0(tmpman$name, "-covr-report.html"))
+  tmpman$coverage <- paste("<a href='", covg_report_uri, "'>",
+                           tmpman$coverage, "</a>")
+  tmpman$coverage[!file.exists(covg_report)] <- ""
 
   # Assign badges and log links to the latest build status
   # Also make logs human-readable
@@ -117,19 +124,25 @@ manifestHTML <- function(repo, theme = "bootstrap",
     tmpman$maintainer[i] <- emailTag(tmpman$maintainer[i])
 
     # Build history
-    tmpman$Chronicles[i] <- createURL(pkglog, "Build log")
+    tmpman$Chronicles[i] <- createHyperlink(pkglog, "Build log")
 
     # Package documentation
-    pkg_doc <- file.path("..", "..", "PkgDocumentation",
-                         tmpman$name[i], "index.html")
-    if (file.exists(file.path(destination(repo), pkg_doc))) {
-      tmpman$name[i] <- createURL(pkg_doc, tmpman$name[i])
+    pkg_doc <- file.path(pkg_doc_dir(repo),
+                         tmpman$name[i], splashname)
+    pkg_doc_uri <- file.path('..',
+                             '..',
+                             basename(pkg_doc_dir(repo)),
+                             tmpman$name[i],
+                             splashname)
+    if (file.exists(pkg_doc)) {
+      tmpman$name[i] <- createHyperlink(pkg_doc_uri,
+                                        tmpman$name[i])
       # Add test coverage badge to spash page
       if (!tmpman$coverage[i] == "") {
-        lines <- readLines(file.path(destination(repo), pkg_doc), warn = FALSE)
+        lines <- readLines(pkg_doc, warn = FALSE)
         covbadge <- paste("<p>Test Coverage:", tmpman$coverage[i], "</p>")
         lines <- gsub("<tcplaceholder/>", covbadge, lines)
-        write(lines, file.path(destination(repo), pkg_doc))
+        write(lines, pkg_doc)
       }
     }
   }
@@ -178,15 +191,24 @@ manifestHTML <- function(repo, theme = "bootstrap",
   }
   if(file.exists(risk_rpt)) {
   risk_rpt_html <- paste("<hr><p>Update Risk Report for all site packages:",
-                         createURL(risk_rpt, label = "Risk Report"), "</p>")
+                         createHyperlink(risk_rpt, label = "Risk Report"), "</p>")
   }
+
+  # Create the manifest report
+  manifest_location <- file.path(destination(repo), "manifest.html")
+  manifestReport(repo,
+                 theme = theme,
+                 jsonrpt = jsonrpt,
+                 reportfile = manifest_location)
+  manifestreport_link <- paste0("<p><a href=\"", basename(manifest_location),
+                                "\">View build manifest</a><p>")
 
   # Construct final HTML
   final_html <- paste("<!doctype html>
                       <html> <head>", title, css_tag, js_tag, ds_script,
                       "<body style=\"padding: 20px;\"></head>",
                       summary_header, attmpthtml, "<br/>", build_header,
-                      build_html, risk_rpt_html, dl_json_link, "</body></html>")
+                      build_html, risk_rpt_html, dl_json_link,
+                      manifestreport_link, "</body></html>")
   write(final_html, reportfile)
-  NULL
 }
