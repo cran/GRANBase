@@ -35,7 +35,7 @@ buildBranchesInRepo <- function(repo, cores = 1,
                 repoLoc <- file.path(repoLoc, "src", "contrib")
         }
         #opts = c("--no-build-vignettes", "--no-manual", "--no-resave-data")
-        opts <- c("--no-build-vignettes", "--no-resave-data")
+        opts <- "--no-build-vignettes --no-resave-data"
     } else {
         repoLoc <- staging(repo)
         opts <- "--resave-data"
@@ -103,9 +103,13 @@ buildBranchesInRepo <- function(repo, cores = 1,
                   repodest = ".",
                   archive = file.path(".", "Archive"))
     if(!temp)
-        write_PACKAGES(".", type = "source", latestOnly = FALSE)
+        update_PACKAGES(".", type = "source", latestOnly = FALSE,
+                        strict = FALSE,
+                        verbose = TRUE, logfun = update_pkgs_logfun(repo, "NA"))
     else
-        write_PACKAGES(".", type = "source", latestOnly = TRUE)
+        update_PACKAGES(".", type = "source", latestOnly = TRUE,
+                        strict = FALSE,
+                        verbose = TRUE, logfun = update_pkgs_logfun(repo, "NA"))
     if(any(res %in% c("failed", "build timed-out"))) {
         warning("Warning: not all packages were succesfully built")
     }
@@ -125,8 +129,14 @@ buildBranchesInRepo <- function(repo, cores = 1,
 
     ## incremental build logic. If incremental == TRUE,
     ## we only rebuild if the package version number has bumped.
-    vnum <- read.dcf(file.path(checkout, "DESCRIPTION"))[1,"Version"]
-    pkg <- getPkgNames(checkout)
+    if (!is.na(checkout)) {
+      vnum <- read.dcf(file.path(checkout, "DESCRIPTION"))[1,"Version"]
+      pkg <- getPkgNames(checkout)
+    } else {
+      ret <- "checkout failed"
+      names(ret) <- "0.0-0"
+      return(ret)
+    }
 
     if(!is.na(vers_restr) && vnum != vers_restr) {
         logfun(repo)(pkg, paste("Wrong version number for pkg",

@@ -11,18 +11,30 @@
 #' @param riskrpt Whether to build the risk report
 #' @param jsonrpt Whether to create a JSON version of the build report
 #' @param splashname Filename for the package HTML splash page
+#' @param cores Number of cores to use when generating coverage reports.
 #' @return None
 #' @export
 buildReport <- function(repo, theme = "bootstrap",
                 reportfile = file.path(destination(repo), "buildreport.html"),
                 riskrpt = FALSE,
                 jsonrpt = TRUE,
-                splashname = "index.html") {
+                splashname = "index.html",
+                cores = 1L) {
 
   # Overall Build Stats
-  title <- paste0("<title>GRAN", repo_name(repo), " Build Report</title>")
-  summary_header <- paste0("<h2>Overall Build Stats for GRAN",
-                          repo_name(repo), "</h2>")
+  if (nchar(platform(repo)) > 0) {
+    common_name <- paste0("GRAN", repo_name(repo), " Build Report on ", platform(repo))
+  } else {
+    common_name <- paste0("GRAN", repo_name(repo), " Build Report")
+  }
+  title <- paste0("<title>", common_name, "</title>")
+  topheader <- paste0("<h1><center>", common_name, "</center></h1>")
+  if ((nchar(r_version(repo)) > 0) && (nchar(bioc_version(repo) > 0))) {
+    subheader <- paste0("<h2><center>(R ", r_version(repo), "/Bioc ", bioc_version(repo), ")</center></h2>")
+  } else {
+    subheader <- ""
+  }
+  summary_header <- paste0("<h2>Overall Build Stats</h2>")
   results_df <- repo_results(repo)
   results_df <- results_df[!(results_df$name %in% suspended_pkgs(repo)), ]
   lastattempt <- results_df$lastAttemptStatus
@@ -55,7 +67,7 @@ buildReport <- function(repo, theme = "bootstrap",
 
   # Calculate test Coverage
   if(check_test_on(repo)) {
-    covr <- testCoverage(repo)
+    covr <- testCoverage(repo, cores = cores)
     tmpman$coverage <- covr$coverage[match(tmpman$name, covr$name)]
   } else {
     tmpman$coverage <- NULL
@@ -79,21 +91,21 @@ buildReport <- function(repo, theme = "bootstrap",
   log_closer <- "</code></pre></html>"
   for (i in 1:length(tmpman$lastAttemptStatus)) {
     # Prettify the logs
-    checkrep <- file.path("..", "..", "CheckResults",
-                          paste0(tmpman$name[i], "_CHECK.log"))
-    pkglog <- file.path("..", "..", "SinglePkgLogs",
-                        paste0(tmpman$name[i], ".log"))
-    install_results <- file.path("..", "..", "InstallResults",
-                                 paste0(tmpman$name[i], ".out"))
-    x_loc <- file.path(destination(repo), checkrep)
+    check_log <- paste0(tmpman$name[i], "_CHECK.log")
+    pkg_log <- paste0(tmpman$name[i], ".log")
+    install_log <- paste0(tmpman$name[i], ".out")
+
+    x_loc <- file.path(check_result_dir(repo), check_log)
     if (file.exists(x_loc) && !grepl(log_closer,
                                     readChar(x_loc, file.info(x_loc)$size))) {
+      ## The current check logs to not have an EOL character. Add one here.
+      cat("", file = x_loc, append = TRUE, sep = "\n")
       cat(log_closer, file = x_loc, append = TRUE, sep = "\n")
       lines <- readLines(x_loc, -1, warn = FALSE)
       lines[1] <- paste(log_header, lines[1], sep = "\n")
       writeLines(lines, x_loc)
     }
-    y_loc <- file.path(destination(repo), pkglog)
+    y_loc <- file.path(pkg_log_dir(repo), pkg_log)
     if (file.exists(y_loc)) {
       lines <- readLines(y_loc, -1, warn = FALSE)
       lines <- gsub(log_closer, "", lines)
@@ -105,7 +117,7 @@ buildReport <- function(repo, theme = "bootstrap",
       writeLines(lines, y_loc)
       cat(log_closer, file = y_loc, append = TRUE, sep = "\n")
     }
-    z_loc <- file.path(destination(repo), install_results)
+    z_loc <- file.path(install_result_dir(repo), install_log)
     if (file.exists(z_loc) && !grepl(log_closer,
                                     readChar(z_loc, file.info(z_loc)$size))) {
       cat(log_closer, file = z_loc, append = TRUE, sep = "\n")
@@ -116,15 +128,15 @@ buildReport <- function(repo, theme = "bootstrap",
 
     # Create badges
     status <- tmpman$lastAttemptStatus[i]
-    #oldstatus <- tmpman$lastbuiltstatus[i]
-    tmpman$lastAttemptStatus[i] <- buildBadge(status, tmpman$name[i])
-    #tmpman$lastbuiltstatus[i] <- buildBadge(oldstatus, tmpman$name[i])
-
+    oldstatus <- tmpman$lastbuiltstatus[i]
+    tmpman$lastAttemptStatus[i] <- buildBadge(status, tmpman$name[i], repo = repo)
+  
     # Create hrefs for email IDs
     tmpman$maintainer[i] <- emailTag(tmpman$maintainer[i])
 
     # Build history
-    tmpman$Chronicles[i] <- createHyperlink(pkglog, "Build log")
+    pkg_log_uri <- file.path('..', '..', 'SinglePkgLogs', pkg_log)
+    tmpman$Chronicles[i] <- createHyperlink(pkg_log_uri, "Build log")
 
     # Package documentation
     pkg_doc <- file.path(pkg_doc_dir(repo),
@@ -207,7 +219,7 @@ buildReport <- function(repo, theme = "bootstrap",
   final_html <- paste("<!doctype html>
                       <html> <head>", title, css_tag, js_tag, ds_script,
                       "<body style=\"padding: 20px;\"></head>",
-                      summary_header, attmpthtml, "<br/>", build_header,
+                      topheader, subheader, summary_header, attmpthtml, "<br/>", build_header,
                       build_html, risk_rpt_html, dl_json_link,
                       manifestreport_link, "</body></html>")
   write(final_html, reportfile)

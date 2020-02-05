@@ -1,9 +1,9 @@
-doPkgTests <- function(repo, cores = 1)
+doPkgTests <- function(repo, cores = 1, constrained_build = FALSE)
 {
   logfun(repo)(
     "NA",
     paste0(
-      "Beginning testing of GRAN packages before migration to",
+      "Beginning testing of GRAN packages before migration to ",
       "final repository using ",
       cores,
       " cores: ",
@@ -16,7 +16,7 @@ doPkgTests <- function(repo, cores = 1)
     repo_results(repo)$building = TRUE
 
   if (install_test_on(repo)) {
-    repo = installTest(repo, cores = cores)
+    repo = installTest(repo, cores = cores, constrained_build = constrained_build)
     repo = buildBranchesInRepo(repo,
                                temp = FALSE,
                                incremental = TRUE,
@@ -34,7 +34,7 @@ doPkgTests <- function(repo, cores = 1)
 }
 
 #' @importFrom utils update.packages
-installTest <- function(repo, cores = 1)
+installTest <- function(repo, cores = 1, constrained_build)
 {
   logfun(repo)(
     "NA",
@@ -81,8 +81,7 @@ installTest <- function(repo, cores = 1)
   ##bres is in an entirely different space because the packages that failed
   ## earlier steps (e.g., build fail, or were up to date) are excluded.
   ## it's a data.frame, so we need to remove the rows we don't want, unlike above
-  bresgraninds = grep("^GRAN", bres$name)
-  bres = bres[-bresgraninds, ]
+  bres <- subset(bres,!(grepl("^GRAN", bres$name)))
 
   ## protect ourselves here by asserting dimension conformity was preserved:
   ## bres should contain 1 row for each TRUE in binds
@@ -96,8 +95,10 @@ installTest <- function(repo, cores = 1)
 
   # Update packages in the temporary library,
   # given that we always want to test with the latest available packages
-  update.packages(lib.loc = loc, repos = dep_repos(repo),
-                  ask = FALSE, instlib = loc)
+  if (!constrained_build) {
+    update.packages(lib.loc = loc, repos = dep_repos(repo),
+                    ask = FALSE, instlib = loc)
+  }
 
   res = install.packages2(bres$name,
                           lib = loc,
@@ -230,10 +231,9 @@ cleanupInstOut = function(outdir = staging_logs(repo), repo)
     tar,
     " --no-build-vignettes"
   )
-  env = c(paste0('R_LIBS="', temp_lib(repo), '"'),
-          paste0('R_HOME="', R.home(), '"'))
-  args = c("check", tar, "--no-build-vignettes")
-  cmd = file.path(R.home("bin"), "Rcmd")
+  env = paste0('R_LIBS=', shQuote(temp_lib(repo)))
+  args = c("CMD", "check", tar, "--no-build-vignettes")
+  cmd = file.path(R.home("bin"), "R")
   out = tryCatch(
     system_w_init(
       cmd,
@@ -384,6 +384,13 @@ checkTest <- function(repo, cores = 1)
 #' @return repo A gRAN repo object with updated code coverage info
 #' @export
 testCoverage <- function(repo, cores = 1) {
+    if(!requireNamespace("DT")) {
+        logfun(repo)("NA", type ="both",
+            msg = "Unable to generate test coverage reports without the DT package. Skipping.")
+        warning("Unable to generate test coverage reports without the suggested DT package. Skipping.")
+    }
+
+        
     logfun(repo)("NA",
                  paste0(
                    "Creating test coverage reports for ",
@@ -395,47 +402,59 @@ testCoverage <- function(repo, cores = 1) {
     loc <- checkout_dir(repo)
     dir.create(loc, recursive = TRUE, showWarnings = FALSE)
 
-    bres <- subset(repo_results(repo),
-                   repo_results(repo)$building == TRUE
-                   & !is.na(repo_results(repo)$buildReason)
-                   & repo_results(repo)$status != "up-to-date")
+    ## bres <- subset(repo_results(repo),
+    ##                repo_results(repo)$building == TRUE
+    ##                & !is.na(repo_results(repo)$buildReason)
+    ##                & repo_results(repo)$status != "up-to-date")
+    bres <- getBuildingResults(repo)
+    mandf <- getBuildingManifest(repo)
+    calc_coverage <- TRUE
     if (nrow(bres) == 0) {
       logfun(repo)("NA", "No packages to check test coverage for")
-      return(repo)
+      calc_coverage <- FALSE
     }
 
     bres <- subset(bres,!(grepl("^GRAN", bres$name)))
+    mandf <- subset(mandf,!(grepl("^GRAN", mandf$name)))
+    ## protective assertion
+    stopifnot(identical(bres[["name"]], mandf[["name"]]))
     coverageDir <- coverage_report_dir(repo)
 
-    # Begin test coverage calculations
-    coverage <- suppressWarnings(mcmapply2(function(pkgName) {
-      pkgDir <- file.path(loc, pkgName)
-      if (file.exists(pkgDir)) {
-        logfun(repo)(pkgName, "Calculating test coverage")
-        pkgCovg <- tryCatch(package_coverage(path = pkgDir),
+    if (calc_coverage) {
+      # Begin test coverage calculations
+      coverage <- suppressWarnings(mcmapply2(function(pkgName, subdir) {
+        pkgDir <- file.path(loc, pkgName, subdir)
+        stopifnot(file.exists(file.path(pkgDir, "DESCRIPTION")))
+        if (file.exists(pkgDir)) {
+          logfun(repo)(pkgName, "Calculating test coverage")
+          pkgCovg <- tryCatch(package_coverage(path = pkgDir),
+                              error = function(e) NULL)
+          percentCovg <- tryCatch(percent_coverage(pkgCovg),
+                                  error = function(e) NULL)
+          if(is.null(percentCovg) || is.nan(percentCovg)) {
+            label <- "label-danger"
+          } else if (percentCovg > 90) {
+            label <- "label-success"
+          } else if (percentCovg > 75) {
+            label <- "label-warning"
+          } else {
+            label <- "label-danger"
+          }
+          cvgrptfile <- file.path(coverageDir, paste0(pkgName, "-covr-report.html"))
+          dummy <- tryCatch(report(pkgCovg, file = cvgrptfile, browse = FALSE),
                             error = function(e) NULL)
-        percentCovg <- tryCatch(percent_coverage(pkgCovg),
-                                error = function(e) NULL)
-        if (percentCovg > 90 && !is.nan(percentCovg)) {
-          label <- "label-success"
-        } else if (percentCovg > 75 && !is.nan(percentCovg)) {
-          label <- "label-warning"
-        } else {
-          label <- "label-danger"
+          logfun(repo)(pkgName, "Completed test coverage")
+          if (is.numeric(percentCovg) && !is.nan(percentCovg)) {
+            paste("<span class=\"label", label, "\">",
+                  paste(round(percentCovg, digits = 2), "%"), "</span>")
+          } else {
+            "<span class=\"label label-default\">Details</span>"
+          }
         }
-        cvgrptfile <- file.path(coverageDir, paste0(pkgName, "-covr-report.html"))
-        dummy <- tryCatch(report(pkgCovg, file = cvgrptfile, browse = FALSE),
-                          error = function(e) NULL)
-        logfun(repo)(pkgName, "Completed test coverage")
-        if (is.numeric(percentCovg) && !is.nan(percentCovg)) {
-          paste("<span class=\"label", label, "\">",
-                paste(round(percentCovg, digits = 2), "%"), "</span>")
-        } else {
-          "<span class=\"label label-default\">Details</span>"
-        }
-      }
-    }, pkgName = bres$name, mc.cores = cores))
-
+      }, pkgName = bres$name, subdir = mandf$subdir, mc.cores = cores))
+    } else {
+      coverage <- data.frame(coverage=character(), name=character())
+    }
     logfun(repo)("NA", paste("Completed test coverage reports for",
                              length(bres$name),"packages."))
     covg <- as.data.frame(coverage)

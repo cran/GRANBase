@@ -14,7 +14,6 @@ system.file2 <- function(..., package = "GRANBase") {
         return("")
 }
 
-
 getPkgNames <- function(path)
 {
     path = normalizePath2(path)
@@ -26,14 +25,31 @@ getPkgNames <- function(path)
         gsub(basename(path), "([^_]*)_.*", "\\1")
 }
 
-
 getCheckoutLocs <- function(codir, manifest = manifest_df(repo),
     branch = manifest$branch, repo)
 {
-    mapply(getPkgDir, basepath = codir, subdir = manifest$subdir,
-           scm_type = manifest$type, branch = branch, name = manifest$name)
+    mapply(function(basepath, subdir, scm_type, branch, name)
+      tryCatch(getPkgDir(basepath = basepath, subdir = subdir,
+                         scm_type = scm_type, branch = branch,
+                         name = name), 
+               error = function(e) {
+                 warning("Failed to getPkgDir for ",
+                         "pkg ", name, ", ",
+                         "basepath ", basepath, ", ",
+                         "branch ", branch, ", ",
+                         "subdir ", subdir, ", ",
+                         "scm_type ", scm_type, ", ",
+                         "with error: ", e)
+                 NA
+                 }),
+      basepath = codir, 
+      subdir = manifest$subdir,
+      scm_type = manifest$type, 
+      branch = branch,
+      name = manifest$name)
 }
 
+#' @importFrom desc desc_get_maintainer
 getMaintainers <- function(codir, manifest = manifest_df(repo),
     branch = manifest$branch, repo) {
     sapply(getCheckoutLocs(codir, manifest = manifest), function(x) {
@@ -42,7 +58,7 @@ getMaintainers <- function(codir, manifest = manifest_df(repo),
         else {
             ## some github packages don't know how to construct
             ## DESCRIPTION files ... *mumble*
-            tryCatch(read.dcf(file.path(x, "DESCRIPTION"))[,"Maintainer"],
+            tryCatch(desc_get_maintainer(file.path(x, "DESCRIPTION")),
                      error = function(x) NA)
         }
     })
@@ -70,7 +86,6 @@ getCOedVersions <- function(codir, manifest = manifest_df(repo),
                   })
     unlist(vers)
 }
-
 
 isOkStatus <- function(status= repo_results(repo)$status,
     repo)
@@ -104,15 +119,20 @@ install.packages2 <- function(pkgs, repos, lib,  ..., param = SwitchrParam(),
         if(!file.exists(fil))
             return("output missing")
         tmp = readLines(fil)
-        outcome = tmp[length(tmp)]
-        if(grepl("* DONE", outcome, fixed=TRUE))
+        ## for some reason this isn't always the last line, e.g. from histry 0.2.1
+
+        ## NOTE: Removed R CMD INSTALL output for histry 0.2.1 that was here. 
+        ##       Asterisks in the output were causing problems for roxygen.
+
+        ## outcome = tmp[length(tmp)]
+        donemsg = paste0("* DONE (", p, ")")
+        if(any(grepl(donemsg, tmp, fixed = TRUE)))
             "ok"
         else
             fil
     })
     ret
 }
-
 
 getBuilding <- function(repo, results= repo_results(repo))
 {
@@ -125,12 +145,10 @@ getBuildingManifest <- function(repo, results = repo_results(repo),
     manifest[getBuilding(repo, results),]
 }
 
-
 getBuildingResults <- function(repo, results = repo_results(repo))
 {
     results[getBuilding(repo, results),]
 }
-
 
 trim_PACKAGES <- function(dir) {
 
@@ -172,7 +190,6 @@ deltaDF <- function(new_df, old_df) {
   return(delta)
 }
 
-
 #' Checks whether an email ID is valid
 #' @author Dinakar Kulkarni <kulkard2@gene.com>
 #' @param email_id Email ID as a string
@@ -209,4 +226,73 @@ getOS <- function(){
 #' @note This function is not intended for direct use by the end user.
 encode_string <- function(x) {
   tolower(paste(strtoi(charToRaw(as.character(x)), 16L), collapse = ""))
+}
+
+globalVariables("getRversion")
+getRversion2 <- function() {
+    if(exists("getRversion"))
+        getRversion()
+    else
+        paste(R.version$major, R.version$minor)
+}
+
+#' Protect against binary incompatibility in R versions (3.4- <-> 3.5+)
+#' @param repo GRANRepository being built
+#' @return \code{repo}, after clearing the temporary library location
+#' if packages in it were built using a different R version
+checkAndFixLibLoc = function(repo) {
+    libloc <- temp_lib(repo)
+    inst <- installed.packages(lib.loc = libloc)
+    if(dim(inst)[1] == 0)
+        return(repo)
+    
+    bldvrs <- inst[,"Built"]
+    currvers <-  getRversion2()
+    allbvers = unique(bldvrs)
+    if(length(allbvers) > 1 || allbvers != currvers) {
+        message("Found mismatching R versions in LibLoc. Clearing temporary library.")
+        clear_temp_files(repo, checkout = FALSE, logs = FALSE)
+    }
+    return(repo)
+}
+
+update_pkgs_logfun = function(repo, pkg = "NA" ) {
+    fun = logfun(repo)
+    force(fun)
+    function(msg) {
+        fun(pkg, msg)
+    }
+}
+
+## Remove a package from a GRANRepository object.
+.removePkg <- function(repo, package) {
+    not_found <- TRUE
+    ## pkg_manifest and pkg_version
+    pm <- manifest_df(repo)
+    if (package %in% pm$name) {
+        manifest_df(repo) <- pm[pm$name != package,]
+        not_found <- FALSE
+    }
+    pv <- versions_df(manifest(repo))
+    if (package %in% pv$name) {
+        versions_df(manifest(repo)) <- pv[pv$name != package,]
+        not_found <- FALSE
+    }
+    ## results
+    res <- repo_results(repo)
+    if (package %in% res$name) {
+        repo_results(repo) <- res[res$name != package,]
+        not_found <- FALSE
+    }
+    ## suspended
+    suspended <- suspended_pkgs(repo)
+    if (package %in% suspended) {
+        suspended_pkgs(repo) <- suspended[suspended != package]
+        not_found <- FALSE
+    }
+
+    if (not_found)
+        message(paste0("'", package, "' not found in repo object"))
+
+    repo
 }

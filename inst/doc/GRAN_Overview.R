@@ -18,7 +18,7 @@ repo <- makeRepo(man,
                 basedir = repdir,
                 destination = repdir,
                 cores = 1L,
-                install_test = FALSE,
+                install_test = TRUE,
                 check_test = FALSE)
 
 ## ----availpkgs, echo = TRUE, eval = TRUE---------------------------------
@@ -31,4 +31,12 @@ available.packages(repo, type="source")
 #  repo2 <- makeRepo(repo,
 #                    build_pkgs = basename(testpkgs)[1],
 #                    cores = 1L)
+
+## ----clear, echo=TRUE----------------------------------------------------
+repo2 <- clear_temp_files(repo, checkout = FALSE, logs = FALSE)
+repo2 <- clear_repo(repo2, checkout = TRUE)
+repo_results(repo2)
+
+## ----makeagain, echo=TRUE------------------------------------------------
+repo3 <- makeRepo(repo, install_test = FALSE, check_test = FALSE)
 

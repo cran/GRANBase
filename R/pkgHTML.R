@@ -40,6 +40,8 @@ pkgHTML <- function(repo,
     dir.create(docdir, showWarnings = FALSE, recursive = TRUE)
     check_dir <- file.path(staging(repo), paste0(pkg_name, '.Rcheck'))
 
+    revdeps <- NULL ##make sure this always exists
+    descr_df <- NULL ## make sure this always exists
     # There may or may not be an Rcheck dir
     if (file.exists(check_dir)) {
 
@@ -84,10 +86,11 @@ pkgHTML <- function(repo,
       } else {
         desc_header <- ""
         desc_html <- ""
+        logfun(repo)("NA", paste("No DESCRIPTION info available for", pkg_name))
       }
 
       # Create HTML for reverse deps
-      if (!(is.data.frame(revdeps) && ncol(revdeps)==0)) {
+      if (!(is.null(revdeps) || (is.data.frame(revdeps) && ncol(revdeps)==0))) {
         revdeps_header <- "<br/><h4>Reverse Dependencies</h4><hr>"
         revdeps_html <- htmlTable(t(revdeps),
                         css.cell = ("padding-left: 0.5em; padding-right: 0.5em"),
@@ -107,11 +110,24 @@ pkgHTML <- function(repo,
       createSticker(pkg_name, destination = docdir)
 
       # Create package intro
-      status <- bres$lastAttemptStatus[bres$name == pkg_name]
-      description <- as.character(descr_df$Description)
-      maintainer <- emailTag(as.character(descr_df$Maintainer))
-      authors <- emailTag(as.character(descr_df$Author))
-      title <- as.character(descr_df$Title)
+        status <- bres$lastAttemptStatus[bres$name == pkg_name]
+        ## showing "up-to-date" is not the most helpful...
+        if(status == "up-to-date")
+            status <- bres$lastbuiltstatus[bres$name == pkg_name]
+
+      if (!is.null(descr_df)) {
+        description <- as.character(descr_df$Description)
+        maintainer <- emailTag(as.character(descr_df$Maintainer))
+        authors <- emailTag(as.character(descr_df$Author))
+        title <- as.character(descr_df$Title)
+        logfun(repo)("NA", paste("Extracting basic package info for", pkg_name))
+      } else {
+        description <- ""
+        maintainer <- ""
+        authors <- ""
+        title <- ""
+        logfun(repo)("NA", paste("No basic package info for", pkg_name))
+      }      
       intro <- paste0("<h2>", pkg_name, ": ",title, "</h2><hr> ",
               "<img src=\"", pkg_name, ".png\" height=\"160\" align=\"right\">",
                       "<strong><p>", description, "</p></strong> ",
@@ -119,7 +135,7 @@ pkgHTML <- function(repo,
                       "<a href=\"../../src/contrib/buildreport.html\">",
                       "<span class=\"label label-primary\">GRAN",
                               repo_name(repo), "</span></a>", "</p> ",
-                      "<p>Build status: ", buildBadge(status, pkg_name), "</p>",
+                      "<p>Build status: ", buildBadge(status, pkg_name, repo), "</p>",
                       "<tcplaceholder/>",
                       "<p>Authors: ", authors, "</p> ",
                       "<p>Maintainer: ", maintainer, "</p> ")
@@ -142,7 +158,7 @@ pkgHTML <- function(repo,
       # Copy reference manual, vignettes and NEWS into pkg docs dir
       reference_man <- file.path(check_dir, paste0(pkg_name, '-manual.pdf'))
       if (file.exists(reference_man)) {
-        file.copy(reference_man, docdir)
+        file.copy(reference_man, docdir, overwrite = TRUE)
         manref_url <- paste("<p>Reference Manual:",
                             createHyperlink(paste0(pkg_name, '-manual.pdf'),
                                       label = paste0(pkg_name, '-manual.pdf')),
@@ -162,7 +178,7 @@ pkgHTML <- function(repo,
           vign_vec <- c()
           for (rnw_file in rnw_files) {
             pdf_file <- paste0(file_path_sans_ext(rnw_file), ".pdf")
-            file.copy(pdf_file, docdir)
+            file.copy(pdf_file, docdir, overwrite = TRUE)
             vign_url <- createHyperlink(basename(pdf_file),
                                         label = basename(pdf_file))
             vign_vec <- append(vign_vec, vign_url)
@@ -178,7 +194,7 @@ pkgHTML <- function(repo,
           vign_vec2 <- c()
           for (rmd_file in rmd_files) {
             html_file <- paste0(file_path_sans_ext(rmd_file), ".html")
-            file.copy(html_file, docdir)
+            file.copy(html_file, docdir, overwrite = TRUE)
             vign_url2 <- createHyperlink(basename(html_file),
                                          label = basename(html_file))
             vign_vec2 <- append(vign_vec2, vign_url2)
@@ -199,7 +215,7 @@ pkgHTML <- function(repo,
               markdownToHTML(file = news_file,
                              output = file.path(docdir, basename(news_file)))
             } else {
-              file.copy(news_file, docdir)
+              file.copy(news_file, docdir, overwrite = TRUE)
             }
             news_url <- createHyperlink(basename(news_file),
                                         label = basename(news_file))
@@ -222,7 +238,7 @@ pkgHTML <- function(repo,
               markdownToHTML(file = readme_file,
                              output = file.path(docdir, basename(readme_file)))
             } else {
-              file.copy(readme_file, docdir)
+              file.copy(readme_file, docdir, overwrite = TRUE)
             }
             readme_url <- createHyperlink(basename(readme_file),
                                           label = basename(readme_file))
@@ -485,54 +501,74 @@ emailTag <- function(item) {
   item
 }
 
+.to_gran_url = function(path, repo) {
+    if (grepl(dest_base(repo), path, fixed = TRUE)) {
+        gsub(file.path(dest_base(repo), repo_name(repo)),
+             repo_url(repo), path, fixed = TRUE)
+    } else {
+        ""
+    }
+}
+
+
 #' Create Badges for build status
 #' @author Dinakar Kulkarni <kulkard2@gene.com>
 #' @param status The build status for the package
 #' @param pkg_name Name of the package
+#' @param repo GRANRepository object.
 #' @return Badge href tag
-buildBadge <- function(status, pkg_name) {
+buildBadge <- function(status, pkg_name, repo) {
   # Create badges for build status
-  checkrep <- file.path("..", "..", "CheckResults",
+    checkrep <- file.path(check_result_dir(repo),
                         paste0(pkg_name, "_CHECK.log"))
-  pkglog <- file.path("..", "..", "SinglePkgLogs",
+    pkglog <- file.path(pkg_log_dir(repo), 
                       paste0(pkg_name, ".log"))
-  install_results <- file.path("..", "..", "InstallResults",
+    install_results <- file.path(install_result_dir(repo),
                                paste0(pkg_name, ".out"))
-  if (is.na(status) || status == "NA") {
-    label <- "label-default"
-    log <- ""
-  } else if (status == "ok") {
-    label <- "label-primary"
-    log <- pkglog
-  } else if (status == "build failed" || status == "source checkout failed") {
-    label <- "label-danger"
-    log <- pkglog
-  } else if (status == "check fail" || status == "Unable to check - missing tarball") {
-    label <- "label-danger"
-    log <- checkrep
-  } else if (status == "check note(s)") {
-    label <- "label-info"
-    log <- checkrep
-  } else if (status == "check warning(s)") {
-    label <- "label-warning"
-    log <- checkrep
-  } else if (status == "install failed") {
-    label <- "label-danger"
-    log <- install_results
-  } else if (status == "up-to-date") {
-    label <- "label-success"
-    log <- install_results
-  } else if (status == "ok - not tested") {
-    label <- "label-primary"
-    log <- pkglog
-  } else if (status == "GRAN FAILURE" || status == "Dependency build failure") {
-    label <- "label-danger"
-    log <- pkglog
-  } else {
-    label <- "label-default"
-    log <- pkglog
-  }
-  paste("<a href=\"", log, "\"><span class=\"label",
-        label, "\">", status, "</span></a>")
+
+    #label and log don't ahve to agree
+    
+    if (is.na(status) || status == "NA") {
+        label <- "label-default"
+        log <- ""
+    } else if (status == "ok") {
+        label <- "label-primary"
+        log <- pkglog
+    } else if (status == "build failed" || status == "source checkout failed") {
+        label <- "label-danger"
+        log <- pkglog
+    } else if (status == "check fail" ||
+               status == "Unable to check - missing tarball") {
+        label <- "label-danger"
+        log <- checkrep
+    } else if (status == "check note(s)") {
+        label <- "label-info"
+        log <- checkrep
+    } else if (status == "check warning(s)") {
+        label <- "label-warning"
+        log <- checkrep
+    } else if (status == "install failed") {
+        label <- "label-danger"
+        log <- install_results
+    } else if (status == "up-to-date") {
+        label <- "label-success"
+        ##log <- install_results
+        ## we want the check results so we can see the warnings
+        ## or notes
+        log <- checkrep
+    } else if (status == "ok - not tested") {
+        label <- "label-primary"
+        log <- pkglog
+    } else if (status == "GRAN FAILURE" ||
+               status == "Dependency build failure") {
+        label <- "label-danger"
+        log <- pkglog
+    } else {
+        label <- "label-default"
+        log <- pkglog
+    }
+    paste("<a href=\"", .to_gran_url(log, repo), "\"><span class=\"label",
+          label, "\">", status, "</span></a>")
 }
 
+        
